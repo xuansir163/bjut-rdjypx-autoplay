@@ -17,6 +17,15 @@ const REAL = new URL('./fixtures/my-courses-ybdy.html', import.meta.url);
 const ORIGIN = 'https://rdjypx.bjut.edu.cn';
 const HTML = fs.readFileSync(REAL, 'utf8');
 
+// 造一份"第 2 门也已完成"的页面：只把 v_id=18511 那张卡片的「未完成」改成「已完成」
+const HTML_TWO_DONE = (() => {
+  const d = new JSDOM(HTML).window.document;
+  const cards = Array.from(d.querySelectorAll('.study_plan2'));
+  const c = cards.find((x) => /v_id=18511/.test(x.innerHTML));
+  if (c) c.innerHTML = c.innerHTML.replace(/未完成/g, '已完成');
+  return '<!DOCTYPE html>' + d.documentElement.outerHTML;
+})();
+
 const ok = (cond, msg) => console.log((cond ? '  ✅ ' : '  ❌ ') + msg);
 
 async function load(name, url, html, { store = null, act = null, wait = 4200 } = {}) {
@@ -92,9 +101,26 @@ async function load(name, url, html, { store = null, act = null, wait = 4200 } =
     stage: 'play', lesson: 'V18511', lessonText: '', done: ['V18198', 'V18511'],
     listUrl: ORIGIN + '/user/lesson', videoListUrl: '', manifest, manifestAt: Date.now(),
   });
-  const { st, saved } = await load('② 回到列表 · 前两门已完成 → 跳第 3 门', ORIGIN + '/user/lesson', HTML, { store });
+  const { st, saved } = await load('② 回到列表 · 前两门页面显示已完成 → 跳第 3 门', ORIGIN + '/user/lesson', HTML_TWO_DONE, { store });
   ok(/v_id=18624/.test(st['上次跳转'] || ''), '跳到第 3 门 v_id=18624：' + st['上次跳转']);
   ok((saved.manifest || []).length === 11, '清单被刷新成 11 门（同一页的权威数据）');
+}
+
+// ②b ★v1.14 关键回归：脚本自己记着"已完成"，但页面写的是「未完成」→ 必须以页面为准，重新刷这门
+{
+  const manifest = [
+    { id: 'V18198', text: '马克思主义的世界观和方法论', url: ORIGIN + '/ybdy/play?v_id=18198&r=video&t=2', done: true },
+    { id: 'V18511', text: '锲而不舍落实中央八项规定精神', url: ORIGIN + '/ybdy/play?v_id=18511&r=video&t=2', done: true },
+  ];
+  const store = JSON.stringify({
+    stage: 'play', lesson: 'V18511', lessonText: '', done: ['V18198', 'V18511'],
+    listUrl: ORIGIN + '/user/lesson', videoListUrl: '', manifest, manifestAt: Date.now(),
+  });
+  const { st, saved } = await load('②b 页面显示未完成（脚本曾记完成）→ 必须重刷第 2 门', ORIGIN + '/user/lesson', HTML, { store });
+  ok(/v_id=18511/.test(st['上次跳转'] || ''), '回到第 2 门 v_id=18511 重刷：' + st['上次跳转']);
+  const m2 = (saved.manifest || []).find((x) => x.id === 'V18511') || {};
+  ok(m2.done === false, '清单里第 2 门的 done 被页面文字纠正为 false（实际 ' + m2.done + '）');
+  ok(/已完成 1 门/.test(st['课程清单'] || ''), '进度按页面算成 1/11：' + st['课程清单']);
 }
 
 // ③ 全部 11 门都完成 → 应停下，不再跳

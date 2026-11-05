@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.13.1
+// @version      1.14.0
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；v1.12 按北工大党旗飘飘在线实测修正：播放页有侧栏多集（上/中/下），红色=当前播放集而非已完成；「我的课程」识别目录 → 一门刷完自动跳下一门。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
@@ -22,12 +22,14 @@
   3) 播放页第一次用：如果面板写"未定位当前集"，在右侧目录里手动点一下你正在看的那一集，
      脚本会记住这个位置，之后全自动。
 
-  ★ v1.12 按在线实测修正（2026-11-05，浏览器直连真实页面核实）
+  ★ v1.14 按用户实测修正（2026-11-05）
   ────────
-  ① 播放页 /ybdy/play?v_id=…&r=video&t=2 有侧栏目录！
-     一门课常拆成上/中/下好几集，每集是 /ybdy/play?v_id=…&r_id=…（r_id 才是单集标识）。
-     侧栏红字/红点 = 当前正在播放的那一集，**不是"已完成"**（已完成课程的那集也照样红）。
-     所以 /ybdy 页面上所有"红=完成"的判断都停用了；集数推进只认"真的播到结尾"。
+  ① 播放页侧栏里**红色 = 这一集已经看完**（用户确认：上完的课就是红的）。
+     v1.12 曾把它误读成"当前播放集高亮"，把颜色判断整段停用，导致认不出哪些集已完成：
+     既会重播看完的集，也不会在全部变红时收尾。v1.14 恢复"红=已完成"，并按它跳过、收尾。
+     关掉面板「跳过红项」= 完全不理颜色，只按"真的播到结尾"推进。
+  ② 课程是否完成，**只认「我的课程」卡片上的文字**（绿色「已完成」/ 红色「未完成」）。
+     播放页播完只记"待平台结算"，不当完成——平台没记上（学时不足/播太快）也不会被永久跳过。
   ② 打开带观看进度的视频会弹「温馨提示：该课程视频你上次观看到: XX:XX」，
      按钮「从头开始 / 继续观看」——脚本会自动点「继续观看」，从上次的地方接着播。
   ③ /ybdy/lesson、/ybdy/lesson/video 是「选课」页（有「选课」按钮），脚本永不介入，
@@ -584,11 +586,15 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
   // 因为 loop 重播时进度条采样可能永远够不到结尾（播放器提前 seek 回 0）。
   // 只在"从黑变红"那一刻触发一次，避免误判（刚打开就已是红色的集不会触发，避免重看被立即切走）。
   function checkCurTurnedRed() {
-    if (onYbdyPage()) return false;   // ★/ybdy 页面红色=当前播放集，"黑→红"在开播瞬间就会误触发，整段停用
-    // 每次都强制重扫目录：平台"变红"常伴随目录 DOM 重建/替换，缓存里的旧 <li> 会变成
-    // 脱离文档的死引用，永远读不到新颜色——这是之前"第二遍都红了却不切"的头号嫌疑。
+    // ★v1.14 修正：/ybdy 播放页侧栏的红色就是「这一集已经看完」（用户 2026-11-05 确认）。
+    //   v1.12 曾把红色误读成"当前播放集高亮"，整段停用颜色判断，结果脚本认不出哪些集已完成，
+    //   既会重播已完成的集、也不会在全部变红时收尾——这就是"上完没上完识别不准"的直接原因。
+    //   每次都强制重扫目录：平台"变红"常伴随目录 DOM 重建/替换，缓存里的旧 <li> 会变成
+    //   脱离文档的死引用，永远读不到新颜色——这是之前"第二遍都红了却不切"的头号嫌疑。
     const cat = getCatalog(true);
-    if (!cat || !cat.redUsable) return false;      // 整份目录都红/没有红色判定时，信号不可靠
+    if (!cat) return false;
+    // 整份目录都红：在 /ybdy 上等于"这一门全看完了"，信号有效；别的结构下才当主题色处理
+    if (!cat.redUsable && !onYbdyPage()) return false;
     const idx = locateCurrent(cat);
     if (idx < 0) return false;
     const it = cat.items[idx];
@@ -602,7 +608,9 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       // 改成 return nowRed：新集已红 → 返回 true 让调用方立即跳到下一个未完成集。
       redRid = rid;
       curWasRed = nowRed;
-      return nowRed;
+      // ★v1.14：打开时这一集就已经是红的 = 平台早就记完成过。
+      // 只有开着「跳过红项」才直接跳走，否则乖乖从头播（关掉开关就不会被颜色带着跑）。
+      return nowRed && CFG.skipDone;
     }
     if (nowRed && !curWasRed) { curWasRed = true; return true; }             // 黑 → 红
     curWasRed = nowRed;
@@ -979,9 +987,10 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       if (!hasHandle && !looksLikeList) return null;
     }
 
-    // 红色是"已完成"的权威标记。但如果整份目录都发红，那是站点主题色，不能当完成标记用。
+    // 红色是"已完成"的权威标记。别的结构下如果整份目录都发红，那是站点主题色，不能当完成标记用；
+    // /ybdy 例外——那里整份发红就是"这门课全看完了"，正是要收尾的信号。
     const redCount = items.filter((it) => it.red).length;
-    const redUsable = redCount < items.length;   // 只有"全部发红"才判定为主题色并停用；全黑时红色判断照样有效
+    const redUsable = onYbdyPage() ? true : (redCount < items.length);
 
     items.forEach((it) => {
       it.doneHint = (redUsable && it.red) || classSaysDone(it.el) || /[✓✔√]/.test(it.raw);
@@ -1175,16 +1184,8 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
         //   没完成就继续活着播下去；完成了也只是"不再切集"，暂停框照旧处理。
         awaitingSwitchUntil = 0;
         const cur = cat.items[idx];
-        // ★/ybdy（党旗飘飘）：目录里没有"已完成"标记（红=当前播放集），播到最后一集结尾
-        //   就该回「我的课程」核对——平台上这门课记没记完成，只有列表页那行字说了算。
-        if (onYbdyPage()) {
-          allDone = true;
-          lastEpPending = false;
-          log('本门课的最后一集已播完（共 ' + cat.items.length + ' 集）：回「我的课程」核对完成状态');
-          setStatus('本课播完', '回课程列表核对');
-          acSingleDone();
-          return;
-        }
+        // ★v1.14：/ybdy 侧栏红色就是"这一集已完成"，所以最后一集也按红色判定，
+        //   不再像 v1.12 那样"播到结尾就一律当完成"。红了才是真完成，没红就继续播。
         let curDone = false;
         try { curDone = !!cur.doneHint; } catch (e) {}
         if (!curDone && CFG.useColor) {
@@ -1276,6 +1277,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     lesson: '',          // 当前课程 id
     lessonText: '',      // 当前课程名（日志用）
     done: [],            // 已刷完的课程 id
+    pending: {},         // ★v1.14 播完了、但平台还没把状态改成「已完成」的课 {id: 播完时刻}，等结算用
     listUrl: '',         // 课程列表页地址（回列表用）
     videoListUrl: '',    // 当前课程的视频列表页地址
     manifest: [],        // ★v1.10 手动识别出来的课程清单 [{id,text,url,done}]
@@ -1284,6 +1286,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     navTo: '',           // 上次自动跳转目标
     hops: [],            // 跳转历史（防死循环）
     quiet: 0,            // 日志冷却
+    waitSaid: 0,         // 上次"等平台结算"提示的时刻
   };
   let acAllSaid = false;      // "全部课程的刷完了"只说一次
   let acAutoLocatedAt = 0;    // 上次"自动定位集数"的时刻
@@ -1294,7 +1297,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     try {
       const s = JSON.parse(store.get('rdjypx:ac', '') || '{}');
       if (s && typeof s === 'object') {
-        ['stage', 'lesson', 'lessonText', 'done', 'listUrl', 'videoListUrl', 'manifest', 'manifestAt']
+        ['stage', 'lesson', 'lessonText', 'done', 'pending', 'listUrl', 'videoListUrl', 'manifest', 'manifestAt']
           .forEach((k) => {
             if (s[k] !== undefined && s[k] !== null) AC[k] = s[k];
           });
@@ -1306,6 +1309,11 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     // v1.9 → v1.10 迁移：老版本存的是纯数字课程 id，统一补成 L<数字>，免得新旧混着对不上
     AC.lesson = AC.lesson ? acKey(AC.lesson) : '';
     AC.done = AC.done.map(acKey).filter(Boolean);
+    if (!AC.pending || typeof AC.pending !== 'object' || Array.isArray(AC.pending)) AC.pending = {};
+    // 待结算表顺手清理：超过 2 小时的记录没意义
+    Object.keys(AC.pending).forEach((k) => {
+      if (!(AC.pending[k] > Date.now() - 7200000)) delete AC.pending[k];
+    });
   }
 
   function acSave() {
@@ -1314,6 +1322,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       lesson: AC.lesson,
       lessonText: AC.lessonText,
       done: AC.done.slice(-300),
+      pending: AC.pending,
       listUrl: AC.listUrl,
       videoListUrl: AC.videoListUrl,
       manifest: AC.manifest.slice(0, 200),
@@ -1340,9 +1349,8 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     return 'other';
   }
 
-  // 党旗飘飘（/ybdy）播放页：侧栏目录里的红字/红点 = 当前正在播放的集，不是"已完成"。
-  // 2026-11-05 实测：已完成课程的播放页，它唯一的一集照样显示红色（因为它就是当前集）。
-  // 所以在 /ybdy 页面上，一切"红色=完成"的判断都必须停用。
+  // 党旗飘飘（/ybdy）播放页：侧栏目录里的红色 = 这一集已经看完（用户 2026-11-05 确认）。
+  // v1.12 曾误读成"当前播放集高亮"而停用颜色判断，v1.14 已改回"红=已完成"。
   function onYbdyPage() {
     return /^\/ybdy\//i.test(location.pathname);
   }
@@ -1380,12 +1388,18 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
         if (map.has(id)) continue;
         const cardTxt = norm(c.textContent);
         const name = norm(a.textContent).slice(0, 60) || cardTxt.slice(0, 40);
+        // ★v1.14 判定顺序很重要：先排除"未完成/未学习"，再认"已完成"。
+        //   平台卡片文字形如「课程名 所属：xxx 学习 已完成 学时：0.5」；
+        //   如果哪天出现「已完成 0/2 学时」这种进度文案，也宁可判成未完成（漏刷一门可以补，
+        //   误判成完成就会永久跳过一门）。
+        const cardDone = /未完成|未学习|未开始|未通过/.test(cardTxt) ? false
+          : /已完成|已学完|已修完|学习完成/.test(cardTxt);
         map.set(id, {
           id,
           num: vid,
           href: abs,
           text: name,
-          done: /已完成/.test(cardTxt) && !/未完成/.test(cardTxt),
+          done: cardDone,
           single: true,                                        // 一门课 = 一个视频
         });
       }
@@ -1449,9 +1463,25 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
 
   /* ── v1.10 课程清单：人点一次「识别目录」，之后就按这份清单跑 ── */
 
+  // ★v1.14 完成判定只认平台页面上的字。
+  //   旧版是 `item.done || AC.done 里有它`，而 item.done 又是 `上一轮的 done || 页面 done || AC.done`——
+  //   只要某一次判断为真，这门课就被**永久**当成已完成，平台后来把它改回「未完成」（学时没到账、
+  //   后台播放被限速、平台结算回滚）脚本也永远跳过它。这就是"识别上完没上完不准"的根因。
   function acIsDone(item) {
     if (!item) return false;
-    return !!item.done || AC.done.indexOf(item.id) >= 0;
+    return !!item.done;                      // 页面文字 = 唯一权威
+  }
+
+  // 「播完了，但平台还没把这门记成已完成」——给它一个结算窗口，窗口内先不重刷、也不当作已完成。
+  const AC_PENDING_MS = 12 * 60 * 1000;
+  function acPending(item) {
+    if (!item || item.done) return false;
+    const t = AC.pending && AC.pending[item.id];
+    return !!(t && Date.now() - t < AC_PENDING_MS);
+  }
+  function acWaitLeft(item) {
+    const t = (AC.pending && AC.pending[item.id]) || 0;
+    return t ? Math.max(0, Math.ceil((AC_PENDING_MS - (Date.now() - t)) / 60000)) : 0;
   }
 
   function acMarkDone(id) {
@@ -1461,22 +1491,34 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     if (AC.done.indexOf(k) < 0) { AC.done.push(k); changed = true; }
     const it = AC.manifest.find((x) => x.id === k);
     if (it && !it.done) { it.done = true; changed = true; }
+    if (AC.pending) delete AC.pending[k];
     if (changed) { AC.hops = []; acSave(); }   // 有进展就清空防循环计数，免得"回列表核对"被误判成死循环
     return changed;
+  }
+
+  // 播完一门（平台上还不知道完成没完成）→ 记进待结算表
+  function acMarkPending(id) {
+    const k = acKey(id);
+    if (!k) return;
+    if (!AC.pending) AC.pending = {};
+    if (!AC.pending[k]) AC.pending[k] = Date.now();
+    acSave();
   }
 
   function acProgress() {
     const n = AC.manifest.length;
     const d = AC.manifest.filter(acIsDone).length;
-    return { n, d };
+    const p = AC.manifest.filter(acPending).length;
+    return { n, d, p };
   }
 
-  // 清单里"下一门要刷的课"：先往后找，找不到再从头找（跳过已完成的）
+  // 清单里"下一门要刷的课"：先往后找，找不到再从头找（跳过已完成的，也跳过还在等平台结算的）
   function acNextLesson() {
     if (!AC.manifest.length) return null;
     const cur = AC.manifest.findIndex((x) => x.id === AC.lesson);
-    for (let i = cur + 1; i < AC.manifest.length; i++) if (!acIsDone(AC.manifest[i])) return AC.manifest[i];
-    for (let i = 0; i <= cur && i < AC.manifest.length; i++) if (!acIsDone(AC.manifest[i])) return AC.manifest[i];
+    const pick = (x) => !acIsDone(x) && !acPending(x);
+    for (let i = cur + 1; i < AC.manifest.length; i++) if (pick(AC.manifest[i])) return AC.manifest[i];
+    for (let i = 0; i <= cur && i < AC.manifest.length; i++) if (pick(AC.manifest[i])) return AC.manifest[i];
     return null;
   }
 
@@ -1507,7 +1549,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
           id: l.id,
           text: l.text || (p && p.text) || ('第 ' + (l.num || l.id) + ' 门课'),
           url: l.href,
-          done: (p && p.done) || l.done || AC.done.indexOf(l.id) >= 0,
+          done: !!l.done,                 // ★v1.14 以这次扫描到的页面文字为准
         };
       });
       AC.listUrl = location.href.split('#')[0];
@@ -1602,13 +1644,19 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       log('没有课程清单，播完就不自动跳了（面板上点「识别目录」之后能一门门自动跑）');
       return;
     }
+    // ★v1.14：播完只记"待平台结算"，不记"已完成"。
+    //   v1.13 及以前这里直接当完成，导致平台没记上（学时不足 / 倍速播太快 / 后台被限速）
+    //   也照样跳过这门——漏刷就是这么来的。
+    acMarkPending(AC.lesson);
     const back = AC.listUrl || (location.origin + '/user/lesson');
-    acGo(back, '这门课播完了，回课程列表核对（已完成的会自动跳过）');
+    acGo(back, '这门课播完了，回课程列表核对平台记没记完成');
   }
 
   // 播放页说"最后一集也红了"——先回这门课的视频列表核对，全红才算这门完（然后自动跳下一门）
   function acLessonDone() {
     if (!CFG.autoCourse || !CFG.enabled) return;
+    // ★v1.14：/ybdy（党旗飘飘）一门课就是一个视频，没有"视频列表页"可回去核对 → 直接回课程列表
+    if (onYbdyPage()) { acSingleDone(); return; }
     let back = AC.videoListUrl || '';
     // 单视频课程里 videoListUrl 存的就是播放页本身，回去等于原地打转 → 改回课程列表
     if (back) {
@@ -1675,7 +1723,9 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       AC.listUrl = location.href.split('#')[0];
       const lessons = scanLessons();
       if (!lessons.length) { acLog('课程列表页没找到课程链接（lesson_id）'); return; }
-      // v1.10：每回到目录页就把这一页的课同步进清单（保住已完成标记），之后按清单走
+      // ★v1.14：完成状态**每次都以这一页的文字为准**。
+      //   旧版写的是 `(上一轮的 done) || 页面 done || AC.done 里有它`，只要哪次判断为真就永久为真，
+      //   平台后来改回「未完成」也翻不回来 → 整门课被永久跳过（漏刷）。
       const doneBefore = AC.manifest.filter(acIsDone).length;
       const old = new Map(AC.manifest.map((x) => [x.id, x]));
       AC.manifest = lessons.map((l) => {
@@ -1684,10 +1734,12 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
           id: l.id,
           text: l.text || (p && p.text) || ('第 ' + (l.num || l.id) + ' 门课'),
           url: l.href,
-          done: (p && p.done) || l.done || AC.done.indexOf(l.id) >= 0,
+          done: !!l.done,
           single: !!(l.single || (p && p.single)),
         };
       });
+      // 平台已经把它改成「已完成」的课，把待结算记录清掉
+      AC.manifest.forEach((x) => { if (x.done && AC.pending) delete AC.pending[x.id]; });
       if (!AC.manifestAt) AC.manifestAt = Date.now();
       // 这一页上「已完成」比上次多 → 说明上一门确实刷完了，清空防循环计数
       if (AC.manifest.filter(acIsDone).length > doneBefore) AC.hops = [];
@@ -1703,8 +1755,21 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
           log('选完后回到这一页再点一次「识别目录」，新选的课就会进清单');
         }
       }
-      const next = AC.manifest.find((x) => !acIsDone(x));
+      const undoneAll = AC.manifest.filter((x) => !acIsDone(x));
+      const next = undoneAll.find((x) => !acPending(x));
       if (!next) {
+        // 还有没完成的课，但它们都在"播完了等平台结算"的窗口里 → 等一会儿再核对，别重刷
+        const waiting = undoneAll.filter(acPending);
+        if (waiting.length) {
+          const left = waiting.map((x) => acWaitLeft(x)).sort((a, b) => a - b)[0] || 1;
+          if (!AC.waitSaid || Date.now() - AC.waitSaid > 60000) {
+            AC.waitSaid = Date.now();
+            log('已播完 ' + waiting.length + ' 门，平台还没把它们记成「已完成」：等结算中');
+            log('（约 ' + left + ' 分钟后再核对；学时没到账的话会一直是「未完成」，到时脚本会提示）');
+            setStatus('等平台结算', waiting.length + ' 门待确认');
+          }
+          return;
+        }
         if (!acAllSaid) {
           acAllSaid = true;
           log('自动刷课：课程列表里已经没有未完成的课了（共 ' + lessons.length + ' 门）');
@@ -1788,13 +1853,15 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
   function acStatusText() {
     if (!CFG.autoCourse) return '自动刷课：关';
     const pr = acProgress();
-    const tail = pr.n ? ' · 清单 ' + pr.d + '/' + pr.n : '';
-    if (AC.lesson) return '自动刷课：第 ' + AC.lesson + ' 门' + (AC.done.indexOf(AC.lesson) >= 0 ? '（已完成）' : '') + tail;
+    const tail = pr.n ? ' · 清单 ' + pr.d + '/' + pr.n + (pr.p ? '（待确认 ' + pr.p + '）' : '') : '';
+    const cur = AC.manifest.find((x) => x.id === AC.lesson);
+    if (AC.lesson) return '自动刷课：第 ' + AC.lesson + ' 门' + (cur && acIsDone(cur) ? '（已完成）' : '') + tail;
     return '自动刷课：' + (pr.n ? '清单已就绪' : '待识别目录') + tail;
   }
 
   function acReset() {
     AC.done = [];
+    AC.pending = {};
     AC.manifest.forEach((x) => { x.done = false; });
     AC.lesson = '';
     AC.lessonText = '';
@@ -2172,7 +2239,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     if (bscan) {
       const pr = acProgress();
       bscan.className = 'b' + (pr.n ? ' on' : '');
-      bscan.textContent = pr.n ? ('识别目录 ' + pr.d + '/' + pr.n) : '识别目录';
+      bscan.textContent = pr.n ? ('识别目录 ' + pr.d + '/' + pr.n + (pr.p ? ' ⏳' + pr.p : '')) : '识别目录';
     }
     const bspd = root.getElementById('btnSpeed');
     if (bspd) {
@@ -2400,7 +2467,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.12.0 【识别目录 → 逐门刷课 · 后台保活】');
+    log('脚本已加载 v1.14.0 【红=已完成 · 识别目录 → 逐门刷课 · 后台保活】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();
@@ -2519,11 +2586,15 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
         面板状态: (statusMain || '') + (statusSub ? ' / ' + statusSub : ''),
         自动刷课: CFG.autoCourse ? '开' : '关',
         盲跑模式: CFG.acBlind ? '开（不识别也跳）' : '关（必须先识别目录）',
-        课程清单: pr.n ? (pr.n + ' 门 · 已完成 ' + pr.d + ' 门') : '（还没识别，去目录页点「识别目录」）',
+        课程清单: pr.n ? (pr.n + ' 门 · 已完成 ' + pr.d + ' 门' + (pr.p ? ' · 待平台确认 ' + pr.p + ' 门' : '')) : '（还没识别，去目录页点「识别目录」）',
         清单识别时间: AC.manifestAt ? new Date(AC.manifestAt).toLocaleString('zh-CN', { hour12: false }) : '（无）',
         当前课程: AC.lesson ? AC.lesson + ' ' + AC.lessonText : '（未知）',
         下一门课: nx ? (nx.id + ' ' + (nx.text || '').slice(0, 20) + ' → ' + nx.url) : '（清单里没有未完成的）',
-        已完成课程: AC.done.length ? AC.done.join(', ') : '（无）',
+        待平台确认: (() => {
+          const w = AC.manifest.filter(acPending);
+          return w.length ? w.map((x) => (x.text || x.id).slice(0, 14) + '（' + acWaitLeft(x) + '分钟）').join(' | ') : '（无）';
+        })(),
+        已完成课程: AC.manifest.filter(acIsDone).map((x) => (x.text || x.id).slice(0, 14)).join(' | ') || '（无）',
         课程列表地址: AC.listUrl || '（还没识别过目录页）',
         视频列表地址: AC.videoListUrl || '（还没访问过视频列表）',
         上次跳转: AC.navTo ? Math.round((Date.now() - AC.navAt) / 1000) + 's 前 → ' + AC.navTo : '（无）',
