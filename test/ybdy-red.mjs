@@ -45,7 +45,7 @@ async function run(name, html, store, waitMs = 7000, rid = 65161) {
   const vc = new VirtualConsole();
   vc.on('jsdomError', (e) => { if (!/Not implemented/i.test(e.message)) console.log('  [err]', e.message); });
   const dom = new JSDOM(html, {
-    url: ORIGIN + '/ybdy/play?v_id=18511&r_id=' + rid + '&r=video&pg=',
+    url: ORIGIN + '/ybdy/play?v_id=18511' + (rid ? '&r_id=' + rid : '') + '&r=video&pg=',
     runScripts: 'dangerously',
     pretendToBeVisual: true,
     virtualConsole: vc,
@@ -130,4 +130,64 @@ const baseStore = {
 {
   const { panel } = await run('F 只有红点没有红字 → 0 集完成', playHtml([], 65162), baseStore, 7000, 65162);
   ok(/红\(已完成\) 0\/3/.test(panel), '完成数 = 0：' + (panel.match(/红\(已完成\)\s*\d+\/\d+/) || '(无)'));
+}
+
+// G ★v1.16：URL 不带 r_id（SPA 跳转常态）+ 没有任何记忆 → 必须靠红点认出"正在播第 2 集"
+//    旧版这种局面只能靠 K.last 记忆，记忆一失真就「无法确定当前是第几集」→ 播完不敢切。
+{
+  const { panel, st } = await run('G 无 r_id 无记忆 → 靠红点认出第 2 集', playHtml([], 65162), baseStore, 7000, null);
+  ok(/第 2\/3 集/.test(panel), '面板显示「第 2/3 集」（识别而非记忆）：' + (panel.match(/第 \d\/\d 集|未定位集数/) || '(无)'));
+  ok(!/未定位集数/.test(panel), '没有退化成「未定位集数」');
+}
+
+// H ★v1.16：SPA 不换 URL 的连播里，每一集的「黑→红」都要触发切集
+//    旧版变红基准只看 URL r_id（恒为空），第 1 集变红后基准卡死，第 2 集再变红不触发。
+{
+  const vc = new VirtualConsole();
+  vc.on('jsdomError', (e) => { if (!/Not implemented/i.test(e.message)) console.log('  [err]', e.message); });
+  const dom = new JSDOM(playHtml([], 65161), {
+    url: ORIGIN + '/ybdy/play?v_id=18511&r=video&pg=',      // ← 故意不带 r_id
+    runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
+    beforeParse(win) {
+      win.Worker = class { constructor() {} postMessage() {} terminate() {} };
+      win.URL.createObjectURL = () => 'blob:stub';
+      const AC = class {
+        constructor() { this.state = 'running'; this.destination = {}; }
+        createOscillator() { return { frequency: {}, type: '', connect() {}, start() {} }; }
+        createGain() { return { gain: {}, connect() {} }; }
+        resume() { return Promise.resolve(); }
+      };
+      win.AudioContext = AC; win.webkitAudioContext = AC;
+      win.localStorage.setItem('rdjypx:ac', JSON.stringify(baseStore));
+    },
+  });
+  const s = dom.window.document.createElement('script');
+  s.textContent = SRC;
+  dom.window.document.body.appendChild(s);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const panelText = () => {
+    const host = Array.from(dom.window.document.querySelectorAll('div')).find((d) => d.shadowRoot);
+    return host && host.shadowRoot ? host.shadowRoot.textContent : '';
+  };
+  const epA = (rid) => dom.window.document.querySelector('a[href*="r_id=' + rid + '"]');
+
+  console.log('\n=== H SPA 不换地址连播：每集「黑→红」都要触发切集 ===');
+  await sleep(3200);                                   // 脚本启动，红点定位第 1 集
+  epA(65161).setAttribute('style', 'color:#f5222d');   // 平台：第 1 集看完，文字变红
+  await sleep(3400);                                   // 等 2s 轮询触发 + 切集动作落地
+  // 平台把红点挪到第 2 集（SPA 连播，地址不变），第 2 集文字还是黑的
+  const li1 = epA(65161).closest('li'), li2 = epA(65162).closest('li');
+  const dot = li1.querySelector('span');
+  if (dot) dot.remove();
+  li2.insertBefore(dom.window.document.createElement('span'), li2.firstChild);
+  li2.firstChild.setAttribute('style', 'color:#f5222d');
+  li2.firstChild.textContent = '●';
+  await sleep(2600);                                   // 轮询重建基准：第 2 集黑 → 不触发
+  epA(65162).setAttribute('style', 'color:#f5222d');   // 平台：第 2 集也看完了
+  await sleep(3400);                                   // 应再次触发「当前集已标红」
+  const panel = panelText();
+  const hits = (panel.match(/当前集已标红/g) || []).length;
+  ok(hits >= 2, '两集的「黑→红」都触发了切集（实际 ' + hits + ' 次）');
+  ok(/第 2\/3 集|全部走完|本集已完成|切下一集/.test(panel), '第 2 集变红后有后续动作：' + (panel.match(/全部走完|本集已完成[^\n]*/)?.[0] || '(看日志)'));
+  dom.window.close();
 }

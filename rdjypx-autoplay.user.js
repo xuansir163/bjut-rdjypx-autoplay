@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.15.0
+// @version      1.16.0
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏：文字变红 = 这一集已看完（据此跳过并收尾），红色圆点 = 正在播放（不算完成）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
@@ -220,6 +220,41 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
 
   function hasRedText(el) {
     return redInfo(el).red;
+  }
+
+  // ★v1.16 红点检测：侧栏里「红色圆点 = 平台标的正在播放」（用户 2026-11-05 截图确认）。
+  //   这是定位"当前播到第几集"的识别信号——尤其在 /ybdy 这种 SPA 跳转、URL 不带 r_id 的页面，
+  //   靠它认出当前集，而不是靠脚本自己记（记忆会跟着用户手点、平台自动连播而失真）。
+  //   红点两种形态都认：① ●/▶ 之类的符号字符颜色发红；② 没文字的小色块（背景/边框发红的圆形指示灯）。
+  function hasRedDot(el) {
+    if (!el || !CFG.useColor) return false;
+    let nodes = [];
+    try {
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+      let n = 0;
+      while (w.nextNode() && n++ < 60) nodes.push(w.currentNode);
+    } catch (e) { nodes = []; }
+    for (const tn of nodes) {
+      const raw = (tn.nodeValue || '').replace(/\s+/g, '');
+      if (!raw || !DOT_ONLY.test(raw)) continue;       // 只看纯符号节点（红点/小三角）
+      for (let p = tn.parentElement; p && (p === el || el.contains(p)); p = p.parentElement) {
+        let c = '';
+        try { c = getComputedStyle(p).color; } catch (e) { c = ''; }
+        if (isRedish(c)) return true;
+        if (p === el) break;
+      }
+    }
+    let els = [];
+    try { els = Array.from(el.querySelectorAll('*')).slice(0, 30); } catch (e) {}
+    for (const nd of els) {
+      const t = (nd.textContent || '').replace(/\s+/g, '');
+      if (t) continue;                                 // 有文字的不是指示灯
+      try {
+        const cs = getComputedStyle(nd);
+        if (isRedish(cs.backgroundColor) || isRedish(cs.borderColor)) return true;
+      } catch (e) {}
+    }
+    return false;
   }
 
   const DONE_POS = /^(done|finish|finished|complete|completed|pass|passed|success|learned)$/i;
@@ -609,7 +644,10 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     const idx = locateCurrent(cat);
     if (idx < 0) return false;
     const it = cat.items[idx];
-    const rid = urlId('r_id') || '';
+    // ★v1.16：基准必须跟着"定位到哪一集"走，不能只看 URL 的 r_id——
+    //   /ybdy SPA 切集不改地址，r_id 永远是空，于是第 1 集变红后 curWasRed 卡在 true，
+    //   换到第 2 集再变红时「黑→红」永远不触发，这就是"看完不切下一集"的根因之一。
+    const rid = it.rid || ('k' + it.key) || urlId('r_id') || '';
     let nowRed = false;
     try { nowRed = CFG.useColor ? it.red : !!it.doneHint; } catch (e) { nowRed = false; }
     if (redRid !== rid) {
@@ -947,6 +985,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       target: pickClickable(el),
       active: isActive(el),
       red: CFG.useColor ? hasRedText(el) : false,
+      dot: hasRedDot(el),                 // ★v1.16 红点 = 正在播放（识别信号，不是完成）
     };
   }
 
@@ -1068,6 +1107,14 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       const hit = cat.items.filter((it) => it.vid === vid);
       if (hit.length === 1) return hit[0].i;   // 所有项 v_id 相同时不算数
     }
+    // ★v1.16 红点是平台自己标的「正在播放」，优先于一切记忆：
+    //   /ybdy 是 SPA 跳转，URL 常常不带 r_id，之前只能靠 K.last 记忆定位——
+    //   用户手点一集、或平台自己连播之后，记忆就失真了（"当前第几集"对不上，播完也不敢切）。
+    const dots = cat.items.filter((it) => it.dot);
+    if (dots.length === 1) {
+      store.set(K.last, dots[0].key);          // 让记忆跟着识别走，而不是反过来
+      return dots[0].i;
+    }
     const act = cat.items.filter((it) => it.active);
     if (act.length === 1) return act[0].i;
 
@@ -1116,6 +1163,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
   let replayAt = 0;               // 最后一集"平台没记完成"时的重播计时起点
   let replayTries = 0;            // 重播次数（硬上限 1 次，防止无限循环）
   let singleEndedAt = 0;          // ★v1.10 单视频课程（一门课=一个 v_id）播完的时刻：等平台记完再回列表
+  let goNextRetriedAt = 0;        // ★v1.16 goNext 定位失败时"点第一集未完成"的兜底冷却（防死循环）
 
   function scheduleNext() {
     if (!CFG.enabled || !CFG.autoNext) return;
@@ -1171,6 +1219,23 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       const idx = locateCurrent(cat);
       if (idx < 0) {
         awaitingSwitchUntil = 0;
+        // ★v1.16 定位失败不再干瞪眼：URL 没带 r_id、红点也没认出来时，
+        //   直接点「第一集未完成的」，让平台自己告诉我们现在在播哪集（它的红点会跟上）。
+        //   60 秒冷却防死循环；全都已完成就当这门走完，交给课程串联层收尾。
+        if (!urlId('r_id') && Date.now() - goNextRetriedAt > 60000) {
+          goNextRetriedAt = Date.now();
+          const t0 = cat.items.filter((x) => !x.doneHint)[0];
+          if (t0) {
+            log('认不出当前集，改从第 ' + (t0.i + 1) + ' 集（第一个未完成）继续：' + t0.text.slice(0, 20));
+            setStatus('重新定位', '从第 ' + (t0.i + 1) + ' 集继续');
+            clickNative(t0.target || t0.el);
+            return;
+          }
+          allDone = true;
+          setStatus('全部走完', '共 ' + cat.items.length + ' 集 · 脚本继续值守');
+          acLessonDone();
+          return;
+        }
         log('无法确定当前是第几集，已暂停切集');
         setStatus('未定位当前集', '请在目录里手动点一集，脚本会记住');
         return;
@@ -2478,7 +2543,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.15.0 【红字=已完成·红点=播放中 · 识别目录 → 逐门刷课 · 后台保活】');
+    log('脚本已加载 v1.16.0 【红字=已完成·红点=播放中·靠红点认当前集 · 识别目录 → 逐门刷课 · 后台保活】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();
