@@ -23,13 +23,17 @@ const EP = [
   { rid: 65163, name: '锲而不舍落实中央八项规定精神（下）' },
 ];
 
-// redRids：哪些集显示红色（= 平台已记为看完）
-function playHtml(redRids) {
+// redRids：哪些集**文字变红**（= 学习完成）
+// dotRid：哪一集前面有个红色圆点（= 正在播放，不是完成）
+function playHtml(redRids, dotRid) {
   const lis = EP.map((e) => {
     const red = redRids.indexOf(e.rid) >= 0;
-    return '<li' + (red ? ' style="color:#f5222d"' : '') + '>' +
-      '<a href="/ybdy/play?v_id=18511&r_id=' + e.rid + '&r=video&pg=">' + e.name +
-      ' <span>00:38:59</span></a></li>';
+    const dot = e.rid === dotRid;
+    const dotHtml = dot ? '<span style="color:#f5222d">●</span> ' : '';
+    return '<li>' + dotHtml +
+      '<a href="/ybdy/play?v_id=18511&r_id=' + e.rid + '&r=video&pg="' +
+      (red ? ' style="color:#f5222d"' : '') + '>' + e.name +
+      ' <span style="color:#999">00:38:59</span></a></li>';
   }).join('');
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>学习</title></head><body>' +
     '<div class="course_catalog_list"><ul>' + lis + '</ul></div>' +
@@ -37,11 +41,11 @@ function playHtml(redRids) {
     '</body></html>';
 }
 
-async function run(name, html, store, waitMs = 7000) {
+async function run(name, html, store, waitMs = 7000, rid = 65161) {
   const vc = new VirtualConsole();
   vc.on('jsdomError', (e) => { if (!/Not implemented/i.test(e.message)) console.log('  [err]', e.message); });
   const dom = new JSDOM(html, {
-    url: ORIGIN + '/ybdy/play?v_id=18511&r_id=65161&r=video&pg=',
+    url: ORIGIN + '/ybdy/play?v_id=18511&r_id=' + rid + '&r=video&pg=',
     runScripts: 'dangerously',
     pretendToBeVisual: true,
     virtualConsole: vc,
@@ -110,4 +114,20 @@ const baseStore = {
   const { panel, st } = await run('D 全黑 → 不跳集', playHtml([]), baseStore);
   ok(!/切下一集/.test(panel), '没有触发切集');
   ok(!/\/user\/lesson/.test(st['上次跳转'] || ''), '没有跳去课程列表：' + (st['上次跳转'] || '(无)'));
+}
+
+// E ★v1.15：红点（正在播放）≠ 红字（学习完成）
+//    第 2 集前面有红点、文字是黑的，且它就是当前集 → 绝不能因为"看到红色"就切走。
+{
+  const { panel, st } = await run('E 第 2 集有红点(正在播) + 第 1 集文字红 → 不该跳',
+    playHtml([65161], 65162), baseStore, 7000, 65162);
+  ok(!/当前集已标红/.test(panel), '当前集（红点、黑字）没被判成已完成');
+  ok(/红\(已完成\) 1\/3/.test(panel), '只把文字发红的那 1 集算完成：' + (panel.match(/红\(已完成\)\s*\d+\/\d+/) || '(无)'));
+  ok(!/全部走完/.test(st['面板状态'] || ''), '没有误判整门完成：' + st['面板状态']);
+}
+
+// F 全部红点、没有红字（全都没看完，只是某集在播）→ 一集都不算完成
+{
+  const { panel } = await run('F 只有红点没有红字 → 0 集完成', playHtml([], 65162), baseStore, 7000, 65162);
+  ok(/红\(已完成\) 0\/3/.test(panel), '完成数 = 0：' + (panel.match(/红\(已完成\)\s*\d+\/\d+/) || '(无)'));
 }

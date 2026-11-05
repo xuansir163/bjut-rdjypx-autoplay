@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.14.0
-// @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；v1.12 按北工大党旗飘飘在线实测修正：播放页有侧栏多集（上/中/下），红色=当前播放集而非已完成；「我的课程」识别目录 → 一门刷完自动跳下一门。
+// @version      1.15.0
+// @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏标红 = 这一集已看完（据此跳过并收尾）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
 // @supportURL   https://github.com/xuansir163/bjut-rdjypx-autoplay/issues
@@ -182,29 +182,40 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     return r >= 120 && r - g >= 55 && r - b >= 45 && g <= 100 && b <= 110;
   }
 
-  // 红色往往落在子元素上（<li> 自身可能是 rgb(50,50,50)），所以要连子元素一起看。
-  // 返回命中的色值与标签，方便诊断。
-  function redInfo(el) {
-    const test = (x) => {
-      try {
-        const c = getComputedStyle(x).color;
-        return isRedish(c) ? c : '';
-      } catch (e) { return ''; }
-    };
-    const own = test(el);
-    if (own) return { red: true, color: own, tag: el.tagName.toLowerCase() };
+  // ★v1.15 关键修正：侧栏里「红的圆点/红点」只是**当前正在播放**，
+  //   而「课名文字变成红色」才是**学习完成**。两者混在一起判必然出错：
+  //   红点常常是 background-color，或者就是 color:red 的 ● 字符——前者原逻辑看 color 看不到，
+  //   后者因为"● 也是一个有文字的节点"被当成红字，于是正在播的那一集被误判成已完成。
+  //   所以改法：只遍历**真正有文字的文本节点**，把圆点/装饰符号排除掉，再看父元素 color。
+  const DOT_ONLY = /^[\s·•●○◦∘∙⋅▪▫■□▲△◆◇★☆※+*\-—_=~|/\\▶▸►◀◂]{1,4}$/;
 
-    let kids;
-    try { kids = el.querySelectorAll('*'); } catch (e) { kids = []; }
-    let n = 0;
-    for (const k of kids) {
-      if (n++ >= 24) break;
-      const t = k.textContent;
-      if (!t || !t.trim()) continue;
-      const c = test(k);
-      if (c) return { red: true, color: c, tag: k.tagName.toLowerCase() };
+  function redInfo(el) {
+    const miss = { red: false, color: '', tag: '', text: '' };
+    if (!el) return miss;
+    let nodes = [];
+    try {
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+      let n = 0;
+      while (w.nextNode() && n++ < 60) nodes.push(w.currentNode);
+    } catch (e) { nodes = []; }
+
+    for (const tn of nodes) {
+      const raw = (tn.nodeValue || '').replace(/\s+/g, '');
+      if (!raw) continue;
+      if (DOT_ONLY.test(raw)) continue;              // 圆点 / 分隔符 / 装饰符号 → 不是完成标记
+      // color 是可继承属性：真实页面常把红色写在 <li> 上、文字在 <a> 里，
+      // 所以从文本节点一路向上查到条目容器，任一层文字色发红就算这一集完成。
+      // （红点已被 DOT_ONLY 排除，轮不到它参与判断。）
+      for (let p = tn.parentElement; p && (p === el || el.contains(p)); p = p.parentElement) {
+        let c = '';
+        try { c = getComputedStyle(p).color; } catch (e) { c = ''; }
+        if (isRedish(c)) {
+          return { red: true, color: c, tag: p.tagName.toLowerCase(), text: raw.slice(0, 14) };
+        }
+        if (p === el) break;
+      }
     }
-    return { red: false, color: '', tag: '' };
+    return miss;
   }
 
   function hasRedText(el) {
@@ -2467,7 +2478,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.14.0 【红=已完成 · 识别目录 → 逐门刷课 · 后台保活】');
+    log('脚本已加载 v1.15.0 【红字=已完成·红点=播放中 · 识别目录 → 逐门刷课 · 后台保活】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();
