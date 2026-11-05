@@ -2,7 +2,7 @@
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
 // @version      1.15.0
-// @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏标红 = 这一集已看完（据此跳过并收尾）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
+// @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏：文字变红 = 这一集已看完（据此跳过并收尾），红色圆点 = 正在播放（不算完成）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
 // @supportURL   https://github.com/xuansir163/bjut-rdjypx-autoplay/issues
