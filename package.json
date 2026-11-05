@@ -1,6 +1,6 @@
 {
   "name": "bjut-rdjypx-autoplay",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "description": "北工大「党旗飘飘」智慧党建平台网课自动连播 Tampermonkey 脚本",
   "private": true,
   "type": "module",

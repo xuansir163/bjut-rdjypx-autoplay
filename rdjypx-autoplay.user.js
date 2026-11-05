@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.16.0
+// @version      1.16.1
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏：文字变红 = 这一集已看完（据此跳过并收尾），红色圆点 = 正在播放（不算完成）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
@@ -1260,6 +1260,9 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
         //   没完成就继续活着播下去；完成了也只是"不再切集"，暂停框照旧处理。
         awaitingSwitchUntil = 0;
         const cur = cat.items[idx];
+        // ★v1.16.1 侧栏只有 1 集 = 单视频课，没有"下一集"这回事：收尾交给主循环的单视频分支
+        //   （等 12 秒回课程列表核对），不要在这里设 lastEpPending 等文字变红、更不要原地重播。
+        if (cat.items.length <= 1) { lastEpPending = false; return; }
         // ★v1.14：/ybdy 侧栏红色就是"这一集已完成"，所以最后一集也按红色判定，
         //   不再像 v1.12 那样"播到结尾就一律当完成"。红了才是真完成，没红就继续播。
         let curDone = false;
@@ -2022,9 +2025,13 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
       // loop 重播时进度采样会漏掉精确结尾，所以阈值放宽到 96%，且用 maxSeen 判断（不要求暂停）。
       // 已经"整遍重播"过（loopCount>=1）就说明这集确实播完过，等 3 秒即切；否则多给平台几秒记学时。
       if (!switching && !switchTimer && !allDone && progressState(v) === 'ended') {
-        // ★v1.10 单视频课程（党旗飘飘 /ybdy/play：一门课就是一个 v_id，页面上没有侧栏目录）：
-        //   没有"下一集"可切，播完就等平台记完成，然后回课程列表核对（列表上有「已完成/未完成」）。
-        if (!getCatalog()) {
+        // ★v1.10 单视频课程（党旗飘飘 /ybdy/play：一门课就是一个 v_id）：没有"下一集"可切，
+        //   播完就等平台记完成，然后回课程列表核对（列表上有「已完成/未完成」）。
+        // ★v1.16.1：侧栏只有 1 集的课也算单视频课。以前只判"完全没认到目录"，
+        //   于是「课程数量：1 个」的课被当成"多集课里还没变红的最后一集"，
+        //   一直等文字变红（平台结算慢就永远等），原地重播也不回列表——用户看到的"看完不切"。
+        const cat1 = getCatalog();
+        if (!cat1 || cat1.items.length <= 1) {
           if (!singleEndedAt) {
             singleEndedAt = Date.now();
             log('这门课只有一个视频，已播完：等平台记完成，' +
@@ -2543,7 +2550,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.16.0 【红字=已完成·红点=播放中·靠红点认当前集 · 识别目录 → 逐门刷课 · 后台保活】');
+    log('脚本已加载 v1.16.1 【红字=已完成·红点=播放中·靠红点认当前集 · 识别目录 → 逐门刷课 · 后台保活】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();
