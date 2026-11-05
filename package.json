@@ -1,0 +1,15 @@
+{
+  "name": "bjut-rdjypx-autoplay",
+  "version": "1.13.0",
+  "description": "北工大「党旗飘飘」智慧党建平台网课自动连播 Tampermonkey 脚本",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/harness.mjs && node test/nested.mjs && node test/manifest.mjs && node test/real-ybdy.mjs",
+    "check": "node --check rdjypx-autoplay.user.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  },
+  "license": "MIT"
+}
