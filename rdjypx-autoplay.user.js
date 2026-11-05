@@ -1,9 +1,13 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.13.0
+// @version      1.13.1
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；v1.12 按北工大党旗飘飘在线实测修正：播放页有侧栏多集（上/中/下），红色=当前播放集而非已完成；「我的课程」识别目录 → 一门刷完自动跳下一门。
 // @author       ClaireC
+// @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
+// @supportURL   https://github.com/xuansir163/bjut-rdjypx-autoplay/issues
+// @updateURL    https://raw.githubusercontent.com/xuansir163/bjut-rdjypx-autoplay/main/rdjypx-autoplay.user.js
+// @downloadURL  https://raw.githubusercontent.com/xuansir163/bjut-rdjypx-autoplay/main/rdjypx-autoplay.user.js
 // @match        *://rdjypx.bjut.edu.cn/*
 // @match        *://rdyplx.bjut.edu.cn/*
 // @run-at       document-idle

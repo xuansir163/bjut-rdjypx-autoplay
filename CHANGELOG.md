@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## v1.13.1 — 2026-11-05
+
+- 元数据加 `@homepageURL` / `@supportURL` / `@updateURL` / `@downloadURL`，指向本仓库 raw 地址
+- 从 raw 地址安装一次之后，Tampermonkey 会按版本号**原地更新**同一条脚本，不再产生重复条目
+
 ## v1.13.0 — 2026-11-05
 
 - 新增面板「倍速」按钮：循环 1.0 / 1.25 / 1.5 / 1.75 / 2.0，选择存 `localStorage`（`rdjypx:speed`），启动时钳制到 1~2

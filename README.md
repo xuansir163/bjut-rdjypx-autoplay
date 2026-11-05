@@ -22,11 +22,21 @@ v1.13 起支持**倍速**（1.0~2.0），平台把速度改回 1 会立刻掰回
 
 ## 安装
 
+**推荐：从 raw 地址安装**（之后 Tampermonkey 能按版本号原地更新，不会再出现重复条目）
+
+```
+https://raw.githubusercontent.com/xuansir163/bjut-rdjypx-autoplay/main/rdjypx-autoplay.user.js
+```
+
+把上面这个地址粘进浏览器地址栏回车，Tampermonkey 会自动弹出安装页。
+
+手工安装：
+
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)
 2. 打开 Tampermonkey → 添加新脚本 → 全选删除模板 → 粘贴 `rdjypx-autoplay.user.js` 全部内容 → `Ctrl+S`
 3. 或者把 `.user.js` 文件直接拖进浏览器窗口
 
-> ⚠️ **升级时务必先删旧脚本条目再装新的**。通过网址安装时 Tampermonkey 是「新建条目」而不是覆盖同名脚本，会留下两份同时运行（表现为两个面板叠在一起、互相抢弹窗）。
+> ⚠️ **升级时务必先删旧脚本条目再装新的**。通过本地文件/本地服务器安装时，Tampermonkey 是「新建条目」而不是覆盖同名脚本，会留下两份同时运行（表现为两个面板叠在一起、互相抢弹窗）。从 raw 地址安装且原脚本带 `@updateURL` 就不会有这个毛病。
 
 ## 使用
 
