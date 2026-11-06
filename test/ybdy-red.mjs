@@ -25,13 +25,13 @@ const EP = [
 
 // redRids：哪些集**文字变红**（= 学习完成）
 // dotRid：哪一集前面有个红色圆点（= 正在播放，不是完成）
-function playHtml(redRids, dotRid) {
+function playHtml(redRids, dotRid, mod = 'ybdy') {
   const lis = EP.map((e) => {
     const red = redRids.indexOf(e.rid) >= 0;
     const dot = e.rid === dotRid;
     const dotHtml = dot ? '<span style="color:#f5222d">●</span> ' : '';
     return '<li>' + dotHtml +
-      '<a href="/ybdy/play?v_id=18511&r_id=' + e.rid + '&r=video&pg="' +
+      '<a href="/' + mod + '/play?v_id=18511&r_id=' + e.rid + '&r=video&pg="' +
       (red ? ' style="color:#f5222d"' : '') + '>' + e.name +
       ' <span style="color:#999">00:38:59</span></a></li>';
   }).join('');
@@ -41,11 +41,11 @@ function playHtml(redRids, dotRid) {
     '</body></html>';
 }
 
-async function run(name, html, store, waitMs = 7000, rid = 65161) {
+async function run(name, html, store, waitMs = 7000, rid = 65161, playPath = '/ybdy/play?v_id=18511') {
   const vc = new VirtualConsole();
   vc.on('jsdomError', (e) => { if (!/Not implemented/i.test(e.message)) console.log('  [err]', e.message); });
   const dom = new JSDOM(html, {
-    url: ORIGIN + '/ybdy/play?v_id=18511' + (rid ? '&r_id=' + rid : '') + '&r=video&pg=',
+    url: ORIGIN + playPath + (rid ? '&r_id=' + rid : '') + '&r=video&pg=',
     runScripts: 'dangerously',
     pretendToBeVisual: true,
     virtualConsole: vc,
@@ -210,4 +210,14 @@ const baseStore = {
   ok(hits >= 2, '两集的「黑→红」都触发了切集（实际 ' + hits + ' 次）');
   ok(/第 2\/3 集|全部走完|本集已完成|切下一集/.test(panel), '第 2 集变红后有后续动作：' + (panel.match(/全部走完|本集已完成[^\n]*/)?.[0] || '(看日志)'));
   dom.window.close();
+}
+
+// J ★v1.17：/fzdx（发展对象班）播放页与 /ybdy 同模板 → 同样认「红字=完成 / 红点=播放中」
+//    旧版 pageKind 只认 /ybdy 和 /jjfz，/fzdx/play 被当陌生页面完全不介入。
+{
+  const { panel } = await run('J fzdx 播放页：红点≠红字语义照常生效',
+    playHtml([65161], 65162, 'fzdx'), baseStore, 7000, 65162, '/fzdx/play?v_id=18511');
+  ok(/第 2\/3 集/.test(panel), 'fzdx 被当成播放页接管（定位到第 2 集）：' + (panel.match(/第 \d\/\d 集|未定位集数/) || '(无)'));
+  ok(!/当前集已标红/.test(panel), '当前集（红点、黑字）没被判成已完成');
+  ok(/红\(已完成\) 1\/3/.test(panel), '只把文字发红的那 1 集算完成：' + (panel.match(/红\(已完成\)\s*\d+\/\d+/) || '(无)'));
 }

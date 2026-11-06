@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.16.2
+// @version      1.17.0
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏：文字变红 = 这一集已看完（据此跳过并收尾），红色圆点 = 正在播放（不算完成）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
@@ -640,7 +640,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     const cat = getCatalog(true);
     if (!cat) return false;
     // 整份目录都红：在 /ybdy 上等于"这一门全看完了"，信号有效；别的结构下才当主题色处理
-    if (!cat.redUsable && !onYbdyPage()) return false;
+    if (!cat.redUsable && !onRedCatalogPage()) return false;
     const idx = locateCurrent(cat);
     if (idx < 0) return false;
     const it = cat.items[idx];
@@ -1040,7 +1040,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     // 红色是"已完成"的权威标记。别的结构下如果整份目录都发红，那是站点主题色，不能当完成标记用；
     // /ybdy 例外——那里整份发红就是"这门课全看完了"，正是要收尾的信号。
     const redCount = items.filter((it) => it.red).length;
-    const redUsable = onYbdyPage() ? true : (redCount < items.length);
+    const redUsable = onRedCatalogPage() ? true : (redCount < items.length);
 
     items.forEach((it) => {
       it.doneHint = (redUsable && it.red) || classSaysDone(it.el) || /[✓✔√]/.test(it.raw);
@@ -1435,18 +1435,21 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     if (/\/exam/i.test(p)) return 'other';               // 考试页绝对不碰
     if (/\/ybdy\/play(\/|$)/i.test(p)) return 'play';     // 党旗飘飘播放页（有侧栏目录：/ybdy/play?v_id=&r_id=）
     if (/\/jjfz\/play(\/|$)/i.test(p)) return 'play';
+    if (/\/fzdx\/play(\/|$)/i.test(p)) return 'play';     // 发展对象班播放页（与 /ybdy 同一平台模板）
     if (/^\/ybdy\/lesson/i.test(p)) return 'other';       // ★/ybdy/lesson、/ybdy/lesson/video 都是「选课」页，脚本绝不介入（有「选课」按钮）
     if (/\/jjfz\/lesson\/video(\/|$)/i.test(p)) return 'videoList';
     if (/\/jjfz\/lesson(\/)?$/i.test(p)) return 'courseList';
     if (/^\/user\/lesson(\/|$)/i.test(p)) return 'courseList';   // 党旗飘飘「我的课程」
     if (/\/jjfz(\/)?$/i.test(p)) return 'home';
+    if (/\/play(\/|$)/i.test(p)) return 'play';           // 其他模块的播放页兜底（同平台模板，未来新班次自动兼容）
     return 'other';
   }
 
-  // 党旗飘飘（/ybdy）播放页：侧栏目录里的红色 = 这一集已经看完（用户 2026-11-05 确认）。
-  // v1.12 曾误读成"当前播放集高亮"而停用颜色判断，v1.14 已改回"红=已完成"。
-  function onYbdyPage() {
-    return /^\/ybdy\//i.test(location.pathname);
+  // 党旗飘飘（/ybdy、/fzdx）播放页：侧栏目录里的红色分两种——
+  //   红色圆点 = 正在播放这一集（不是完成）；文字变红 = 学习完成。
+  //   v1.12 曾误读成"当前播放集高亮"而停用颜色判断，v1.14 改回、v1.15 细分红点红字。
+  function onRedCatalogPage() {
+    return /^\/(ybdy|fzdx)\//i.test(location.pathname);
   }
 
   // 课程 id 统一成字符串键：有 lesson_id 用 L<数字>，认不出来就用真实地址算个短哈希（H开头）
@@ -1750,7 +1753,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
   function acLessonDone() {
     if (!CFG.autoCourse || !CFG.enabled) return;
     // ★v1.14：/ybdy（党旗飘飘）一门课就是一个视频，没有"视频列表页"可回去核对 → 直接回课程列表
-    if (onYbdyPage()) { acSingleDone(); return; }
+    if (onRedCatalogPage()) { acSingleDone(); return; }
     let back = AC.videoListUrl || '';
     // 单视频课程里 videoListUrl 存的就是播放页本身，回去等于原地打转 → 改回课程列表
     if (back) {
@@ -1774,7 +1777,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acMarkDone(AC.lesson);
     const nx = acNextLesson();
     if (nx) { acJumpLesson(nx, '换下一门课：' + (nx.text || nx.id).slice(0, 18)); return; }
-    const homeList = (AC.manifest.some((x) => /^V/.test(x.id)) || onYbdyPage())
+    const homeList = (AC.manifest.some((x) => /^V/.test(x.id)) || onRedCatalogPage())
       ? (location.origin + '/user/lesson')
       : (location.origin + '/jjfz/lesson');
     acGo(AC.listUrl || homeList, '清单里没有更多课了，回目录页');
@@ -1793,7 +1796,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     if (kind === 'other' || kind === 'home') {
       // 平台万一换了课程列表的路径：只要页面上有 ≥2 条课程链接，就按课程列表处理
       // （/ybdy 的「选课」页上也有课程卡片，但绝不能当课程列表跑——那里一按就真的是选课）
-      if (!onYbdyPage() && scanLessons().length >= 2) kind = 'courseList';
+      if (!onRedCatalogPage() && scanLessons().length >= 2) kind = 'courseList';
     }
     if (kind !== 'courseList' && kind !== 'videoList') {
       if (kind === 'play') return;   // 播放页由主循环管（点弹窗/切集/收尾），这里不吭声
@@ -2565,7 +2568,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.16.2 【红字=已完成·红点=播放中·已完成的单集课直接跳过 · 识别目录 → 逐门刷课】');
+    log('脚本已加载 v1.17.0 【红字=已完成·红点=播放中 · 支持 /ybdy 与 /fzdx 播放页 · 识别目录 → 逐门刷课】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();
