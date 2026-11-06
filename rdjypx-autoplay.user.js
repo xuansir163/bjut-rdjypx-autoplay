@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         北工大党校网课 · 自动连播
 // @namespace    ClaireC.rdjypx.autoplay
-// @version      1.16.1
+// @version      1.16.2
 // @description  自动点掉"当前视频播放完毕"提示框、自动切到下一集、点掉"继续观看"续播框与暂停框、被暂停自动续播；【我的课程】识别目录 → 按清单一门门刷完自动跳下一门。播放页侧栏：文字变红 = 这一集已看完（据此跳过并收尾），红色圆点 = 正在播放（不算完成）；课程是否完成只认【我的课程】卡片上的「已完成/未完成」文字。
 // @author       ClaireC
 // @homepageURL  https://github.com/xuansir163/bjut-rdjypx-autoplay
@@ -1262,7 +1262,22 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
         const cur = cat.items[idx];
         // ★v1.16.1 侧栏只有 1 集 = 单视频课，没有"下一集"这回事：收尾交给主循环的单视频分支
         //   （等 12 秒回课程列表核对），不要在这里设 lastEpPending 等文字变红、更不要原地重播。
-        if (cat.items.length <= 1) { lastEpPending = false; return; }
+        // ★v1.16.2 但"打开时就已经红"不能一起吞掉：v1.16.1 这里无条件 return，
+        //   把变红轮询送来的"平台已标记完成"信号直接清零，结果已完成的单集课被陪播全程——
+        //   实机实测（2026-11-06）：1 集课已红，面板明明报了「当前集已标红（平台记为完成）」却继续播 13 分钟。
+        if (cat.items.length <= 1) {
+          lastEpPending = false;
+          let done0 = false;
+          try { done0 = !!cur.doneHint; } catch (e) {}
+          if (!done0 && CFG.useColor) { try { done0 = hasRedText(cur.el); } catch (e) {} }
+          if (done0 && CFG.skipDone) {
+            allDone = true;
+            log('这门课只有 1 集且平台已标记完成，回课程列表核对');
+            setStatus('单集已完成', '回列表核对 · 脚本继续值守');
+            acLessonDone();
+          }
+          return;
+        }
         // ★v1.14：/ybdy 侧栏红色就是"这一集已完成"，所以最后一集也按红色判定，
         //   不再像 v1.12 那样"播到结尾就一律当完成"。红了才是真完成，没红就继续播。
         let curDone = false;
@@ -2550,7 +2565,7 @@ let lastSwitchAt = 0;      // 上次切集的时刻，防止 ended 与弹窗两�
     acLoad();
     CFG.autoCourse = store.get('rdjypx:acoff', '0') !== '1';
     CFG.acBlind = store.get('rdjypx:acblind', '0') === '1';
-    log('脚本已加载 v1.16.1 【红字=已完成·红点=播放中·靠红点认当前集 · 识别目录 → 逐门刷课 · 后台保活】');
+    log('脚本已加载 v1.16.2 【红字=已完成·红点=播放中·已完成的单集课直接跳过 · 识别目录 → 逐门刷课】');
     log('开关：' + (CFG.enabled ? '开' : '关') + ' · 跳过红项：' + (CFG.skipDone ? '开' : '关') + ' · 开头提示只关不切：是');
     log(acStatusText() + (CFG.autoCourse ? '（课程列表→视频列表→播放页 整轮串联，考试页不碰）' : ''));
     const pr0 = acProgress();

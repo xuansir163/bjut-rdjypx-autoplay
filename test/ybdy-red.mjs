@@ -140,6 +140,26 @@ const baseStore = {
   ok(!/未定位集数/.test(panel), '没有退化成「未定位集数」');
 }
 
+// I ★v1.16.2：单集课（目录只有 1 项）打开时就已经红 → 平台早记过完成，
+//    必须立刻回课程列表核对，不许陪播全程（实机 2026-11-06：v1.16.1 的单集分支
+//    无条件 return，把变红轮询的"已完成"信号吞掉，13 分钟的课从头陪播到尾）。
+{
+  const e = EP[0];
+  const html1 = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>学习</title></head><body>' +
+    '<div class="course_catalog_list"><ul>' +
+    '<li><a href="/ybdy/play?v_id=18511&r_id=' + e.rid + '&r=video&pg=" style="color:#f5222d">' + e.name +
+    ' <span style="color:#999">00:13:10</span></a></li>' +
+    '</ul></div>' +
+    '<div class="player"><video src="https://example.com/a.mp4" preload="none"></video></div>' +
+    '</body></html>';
+  const { panel, st } = await run('I 单集课已红 → 立即回列表，不陪播', html1, baseStore, 7000, e.rid);
+  ok(/\/user\/lesson/.test(st['上次跳转'] || ''), '回课程列表：' + (st['上次跳转'] || '(无)'));
+  ok(/单集课.*完成|只有 1 集且平台已标记完成/.test(panel), '面板日志给出单集完成原因：' +
+    (panel.match(/[^\n]*单集[^\n]*/) || '(无)'));
+  const pend = st['待平台确认'] || '';
+  ok(/锲而不舍|V18511/.test(pend), '记为「待平台确认」交列表权威判定：' + pend);
+}
+
 // H ★v1.16：SPA 不换 URL 的连播里，每一集的「黑→红」都要触发切集
 //    旧版变红基准只看 URL r_id（恒为空），第 1 集变红后基准卡死，第 2 集再变红不触发。
 {
